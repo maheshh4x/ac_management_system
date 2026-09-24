@@ -1,50 +1,45 @@
 // src/hooks/useACDataset.ts
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  acStore, 
-  ExtendedAC, 
-  ACFilters, 
-  ACStatistics, 
-  DataSourceStatus, 
-  ImportResult 
+import {
+  acStore,
+  ExtendedAC,
+  ACFilters,
 } from '@/lib/ac-data-service';
 
 export function useACDataset(filters?: ACFilters) {
-  const [acs, setAcs] = useState<ExtendedAC[]>(() => acStore.getActiveACDataset(filters));
-  const [stats, setStats] = useState<ACStatistics>(() => acStore.getACStatistics(filters));
-  const [dataSource, setDataSource] = useState<DataSourceStatus>(() => acStore.getDataSourceStatus());
+  const [, setRefreshTick] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshData = useCallback(() => {
-    try {
-      setAcs(acStore.getActiveACDataset(filters));
-      setStats(acStore.getACStatistics(filters));
-      setDataSource(acStore.getDataSourceStatus());
-      setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to refresh AC dataset');
-    }
-  }, [filters]);
+    setRefreshTick(value => value + 1);
+    setError(null);
+  }, []);
 
   useEffect(() => {
-    refreshData();
     const unsubscribe = acStore.subscribe(() => {
-      refreshData();
+      setRefreshTick(value => value + 1);
     });
+
     return unsubscribe;
-  }, [refreshData]);
+  }, []);
+
+  const acs = acStore.getActiveACDataset(filters);
+  const stats = acStore.getACStatistics(filters);
+  const dataSource = acStore.getDataSourceStatus();
 
   const importACAssets = async (newACs: ExtendedAC[]) => {
     setLoading(true);
     try {
       const res = await acStore.importACAssets(newACs);
       refreshData();
-      setLoading(false);
       return res;
-    } catch (err: any) {
-      setLoading(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to import AC assets';
+      setError(message);
       throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -53,11 +48,13 @@ export function useACDataset(filters?: ACFilters) {
     try {
       const res = await acStore.replaceDemoACAssets(newACs);
       refreshData();
-      setLoading(false);
       return res;
-    } catch (err: any) {
-      setLoading(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to replace demo AC assets';
+      setError(message);
       throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -66,7 +63,7 @@ export function useACDataset(filters?: ACFilters) {
     refreshData();
   };
 
-  const updateACAsset = (acId: string, updates: Partial<ExtendedAC>) => {
+  const updateACAsset = async (acId: string, updates: Partial<ExtendedAC>) => {
     const res = acStore.updateACAsset(acId, updates);
     refreshData();
     return res;
@@ -83,10 +80,16 @@ export function useACDataset(filters?: ACFilters) {
     replaceDemoACAssets,
     resetToDemoData,
     updateACAsset,
-    // Chart helpers
     statusDistribution: acStore.getACStatusDistribution(filters),
     typeDistribution: acStore.getACTypeDistribution(filters),
     buildingDistribution: acStore.getBuildingDistribution(filters),
     capacityDistribution: acStore.getACCapacityDistribution(filters),
+    brandDistribution: acStore.getBrandDistribution(filters),
+    totalAssetValue: acStore.getTotalAssetValue(filters),
+    avgAcAge: acStore.getAverageACAge(filters),
+    connectedPowerLoad: acStore.getConnectedPowerLoad(filters),
+    assetValueByBuilding: acStore.getAssetValueByBuilding(filters),
+    assetValueByType: acStore.getAssetValueByType(filters),
+    faultFrequencyByBuilding: acStore.getFaultFrequencyByBuilding(filters),
   };
 }

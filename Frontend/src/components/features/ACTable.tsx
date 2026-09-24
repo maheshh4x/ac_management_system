@@ -1,15 +1,18 @@
 // src/components/features/ACTable.tsx
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { 
   CheckCircle2, AlertOctagon, Wrench, PowerOff, Eye, Edit3, Trash2, MapPin, 
-  ChevronLeft, ChevronRight, ArrowUpDown, ShieldCheck, Airplay, X, AlertTriangle
+  ChevronLeft, ChevronRight, ArrowUpDown, ShieldCheck, Airplay, Save, X
 } from 'lucide-react';
-import { ExtendedAC } from '@/lib/ac-data-service';
+import { ExtendedAC, acStore } from '@/lib/ac-data-service';
 import { ProtectedAction } from '@/components/auth/ProtectedRoute';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
+import { useState } from 'react';
+import { canEditInventory } from '@/lib/permissions';
 
 interface ACTableProps {
   acList: ExtendedAC[];
@@ -49,11 +52,19 @@ export const ACTable: React.FC<ACTableProps> = ({
   onEdit,
   onDeactivate
 }) => {
-  const [selectedAC, setSelectedAC] = useState<ExtendedAC | null>(null);
+  const { user } = useAuth();
   const [sortField, setSortField] = useState<SortField>('id');
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Partial<ExtendedAC>>({});
+  const canEditAcInventory = canEditInventory(user?.role ?? null);
+
+  const roleBase = user?.role === 'SUPER_ADMIN' ? '/admin'
+    : user?.role === 'FACILITY_MANAGER' ? '/manager'
+    : user?.role === 'TECHNICIAN' ? '/technician'
+    : '/viewer';
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -81,6 +92,29 @@ export const ACTable: React.FC<ACTableProps> = ({
     const start = (page - 1) * pageSize;
     return sortedList.slice(start, start + pageSize);
   }, [sortedList, page, pageSize]);
+
+  const startInlineEdit = (ac: ExtendedAC) => {
+    if (!canEditAcInventory) return;
+    setEditingId(ac.id);
+    setDraft({
+      status: ac.status,
+      technician: ac.technician ?? '',
+      remarks: ac.remarks ?? '',
+      nextMaintenanceDate: ac.nextMaintenanceDate ?? '',
+    });
+  };
+
+  const saveInlineEdit = (acId: string) => {
+    if (!canEditAcInventory) return;
+
+    try {
+      acStore.updateACAsset(acId, draft);
+      setEditingId(null);
+      setDraft({});
+    } catch {
+      // surfaced via UI disabled state; keep in-memory draft without closing if needed
+    }
+  };
 
   if (loading) {
     return (
@@ -148,6 +182,7 @@ export const ACTable: React.FC<ACTableProps> = ({
           <tbody className="divide-y divide-slate-100 font-normal text-slate-700">
             {paginatedList.map((ac, idx) => {
               const statusBadge = STATUS_BADGES[ac.status] || STATUS_BADGES.Offline;
+              const detailHref = `${roleBase}/assets/${encodeURIComponent(ac.id)}`;
               return (
                 <motion.tr
                   key={ac.id}
@@ -157,13 +192,13 @@ export const ACTable: React.FC<ACTableProps> = ({
                   className="hover:bg-slate-50/80 transition-colors group"
                 >
                   <td className="px-4 py-3.5 font-mono font-semibold whitespace-nowrap">
-                    <button
-                      onClick={() => setSelectedAC(ac)}
+                    <Link
+                      href={detailHref}
                       className="text-blue-700 hover:text-blue-900 hover:underline text-left cursor-pointer transition-colors"
-                      title={`Click to view all details for ${ac.id}`}
+                      title={`Click to view 3D detail page for ${ac.id}`}
                     >
                       {ac.id}
-                    </button>
+                    </Link>
                   </td>
                   <td className="px-4 py-3.5">
                     <div className="font-semibold text-slate-900">{ac.make} {ac.model}</div>
@@ -176,9 +211,22 @@ export const ACTable: React.FC<ACTableProps> = ({
                     {ac.capacity}
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${statusBadge.bg}`}>
-                      {statusBadge.icon} {statusBadge.text}
-                    </span>
+                    {editingId === ac.id && canEditAcInventory ? (
+                      <select
+                        value={draft.status ?? ac.status}
+                        onChange={e => setDraft(prev => ({ ...prev, status: e.target.value as ExtendedAC['status'] }))}
+                        className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-400 outline-none"
+                      >
+                        <option value="Working">Working</option>
+                        <option value="Fault">Fault</option>
+                        <option value="Maintenance">Maintenance</option>
+                        <option value="Offline">Offline</option>
+                      </select>
+                    ) : (
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${statusBadge.bg}`}>
+                        {statusBadge.icon} {statusBadge.text}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3.5 max-w-[200px]">
                     <div className="text-slate-800 font-medium truncate">
@@ -190,11 +238,29 @@ export const ACTable: React.FC<ACTableProps> = ({
                     </div>
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap text-xs text-slate-600">
-                    <div>{ac.lastMaintenanceDate || 'Not Recorded'}</div>
-                    <div className="text-slate-400 text-[11px]">{ac.lastMaintenanceType || 'Routine'}</div>
+                    {editingId === ac.id && canEditAcInventory ? (
+                      <input
+                        value={draft.lastMaintenanceDate ?? ac.lastMaintenanceDate ?? ''}
+                        onChange={e => setDraft(prev => ({ ...prev, lastMaintenanceDate: e.target.value }))}
+                        className="border border-slate-200 rounded-md px-2 py-1 text-[11px] w-28 focus:ring-2 focus:ring-blue-400 outline-none"
+                      />
+                    ) : (
+                      <>
+                        <div>{ac.lastMaintenanceDate || 'Not Recorded'}</div>
+                        <div className="text-slate-400 text-[11px]">{ac.lastMaintenanceType || 'Routine'}</div>
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap text-xs text-slate-600">
-                    <div>{ac.nextMaintenanceDate || 'Scheduled'}</div>
+                    {editingId === ac.id && canEditAcInventory ? (
+                      <input
+                        value={draft.nextMaintenanceDate ?? ac.nextMaintenanceDate ?? ''}
+                        onChange={e => setDraft(prev => ({ ...prev, nextMaintenanceDate: e.target.value }))}
+                        className="border border-slate-200 rounded-md px-2 py-1 text-[11px] w-24 focus:ring-2 focus:ring-blue-400 outline-none"
+                      />
+                    ) : (
+                      <div>{ac.nextMaintenanceDate || 'Scheduled'}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap">
                     {ac.isDemo ? (
@@ -209,13 +275,14 @@ export const ACTable: React.FC<ACTableProps> = ({
                   </td>
                   <td className="px-4 py-3.5 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => setSelectedAC(ac)}
+                      {/* View 3D Detail Page */}
+                      <Link
+                        href={detailHref}
                         className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors"
-                        title="View Asset Details"
+                        title="View 3D Detail Page"
                       >
                         <Eye size={15} />
-                      </button>
+                      </Link>
                       {onEdit && (
                         <ProtectedAction permission="EDIT_AC">
                           <button
@@ -226,6 +293,38 @@ export const ACTable: React.FC<ACTableProps> = ({
                             <Edit3 size={15} />
                           </button>
                         </ProtectedAction>
+                      )}
+
+                      {canEditAcInventory && (
+                        editingId === ac.id ? (
+                          <>
+                            <button
+                              onClick={() => saveInlineEdit(ac.id)}
+                              className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors"
+                              title="Save changes"
+                            >
+                              <Save size={15} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingId(null);
+                                setDraft({});
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+                              title="Cancel edit"
+                            >
+                              <X size={15} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => startInlineEdit(ac)}
+                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+                            title="Edit inline"
+                          >
+                            <Edit3 size={15} />
+                          </button>
+                        )
                       )}
                       {onDeactivate && (
                         <ProtectedAction permission="DEACTIVATE_AC">
@@ -302,77 +401,6 @@ export const ACTable: React.FC<ACTableProps> = ({
           </button>
         </div>
       </div>
-
-      {/* AC Detail Modal */}
-      <AnimatePresence>
-        {selectedAC && (
-          <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200"
-            >
-              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-lg text-slate-900">{selectedAC.id}</h3>
-                    {selectedAC.isDemo ? (
-                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-100 text-amber-800">Demo</span>
-                    ) : (
-                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-100 text-emerald-800">Official</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 font-medium">{selectedAC.make} {selectedAC.model}</p>
-                </div>
-                <button
-                  onClick={() => setSelectedAC(null)}
-                  className="p-2 rounded-full hover:bg-slate-200 text-slate-500 transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="p-6 grid grid-cols-2 gap-4 text-xs">
-                {[
-                  ['Serial Number', selectedAC.serialNumber || 'N/A'],
-                  ['AC Type', `${selectedAC.type} AC`],
-                  ['Capacity', selectedAC.capacity],
-                  ['Status', selectedAC.status],
-                  ['Building', selectedAC.buildingName || selectedAC.location.buildingId],
-                  ['Floor', selectedAC.floorName || selectedAC.location.floorId],
-                  ['Room', selectedAC.roomName || selectedAC.location.roomId],
-                  ['Department', selectedAC.departmentName || 'Engineering'],
-                  ['Last Service Date', selectedAC.lastMaintenanceDate || 'N/A'],
-                  ['Last Service Type', selectedAC.lastMaintenanceType || 'Routine'],
-                  ['Assigned Tech', selectedAC.technician || 'Central Maintenance Team'],
-                  ['Remarks', selectedAC.remarks || 'Standard asset']
-                ].map(([label, val]) => (
-                  <div key={label} className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">{label}</span>
-                    <span className="font-semibold text-slate-800">{val}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-                <Link
-                  href={`/campus?acId=${selectedAC.id}`}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors"
-                >
-                  <MapPin size={14} /> Locate on 3D Twin Map
-                </Link>
-                <button
-                  onClick={() => setSelectedAC(null)}
-                  className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

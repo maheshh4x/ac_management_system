@@ -30,7 +30,6 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                    user?.role === 'FACILITY_MANAGER' ? '/manager' : 
                    user?.role === 'TECHNICIAN' ? '/technician' : '/viewer';
 
-  // Define nav items logic
   const getNavItems = (): NavItem[] => {
     if (user?.role === 'TECHNICIAN') {
        return [
@@ -38,7 +37,8 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
          { icon: Wrench, label: 'My Jobs', href: `${roleBase}/jobs`, permission: null },
          { icon: Airplay, label: 'Scan QR', href: `${roleBase}/scan`, permission: null },
          { icon: Map, label: 'AC Locations', href: '/campus', permission: null },
-         { icon: History, label: 'Movement Requests', href: `${roleBase}/movement`, permission: null }
+         { icon: History, label: 'Movement Requests', href: `${roleBase}/movement`, permission: null },
+         { icon: Users, label: 'My Profile', href: `${roleBase}/profile`, permission: null },
        ]
     }
 
@@ -47,6 +47,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
          { icon: LayoutDashboard, label: 'Dashboard', href: `${roleBase}/dashboard`, permission: null },
          { icon: Map, label: 'AC Search', href: `${roleBase}/search`, permission: null },
          { icon: MapPin, label: 'Campus Map', href: '/campus', permission: null },
+         { icon: Users, label: 'My Profile', href: `${roleBase}/profile`, permission: null },
        ]
     }
 

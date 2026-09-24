@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopNavbar } from './TopNavbar';
+import { AssistantWidget } from './AssistantWidget';
 import { usePathname } from 'next/navigation';
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -25,6 +26,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
+      <AssistantWidget />
     </div>
   );
 }

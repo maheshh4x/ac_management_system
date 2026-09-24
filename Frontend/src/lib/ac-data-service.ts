@@ -1,5 +1,6 @@
 // src/lib/ac-data-service.ts
 import { AcStatus, LocationData } from './types/campus';
+import { canEditInventory, getCurrentUserRole } from './permissions';
 // Real service layer is used by campus-services.ts; no direct imports needed here
 
 export interface ExtendedAC {
@@ -480,12 +481,177 @@ this.acs = [];
     const map = new Map<string, number>();
 
     dataset.forEach(ac => {
-      const capacity = ac.capacity || 'Unknown';
+      let capacity = ac.capacity || 'Unknown';
+      if (!capacity.toLowerCase().includes('ton') && !isNaN(parseFloat(capacity))) {
+        capacity = `${capacity} Ton`;
+      }
       map.set(capacity, (map.get(capacity) || 0) + 1);
     });
 
-    return Array.from(map.entries()).map(([capacity, count]) => ({ capacity, count }));
+    return Array.from(map.entries())
+      .map(([capacity, count]) => ({ capacity, count }))
+      .sort((a, b) => {
+        const tonA = parseFloat(a.capacity.replace(/[^0-9.]/g, '')) || 0;
+        const tonB = parseFloat(b.capacity.replace(/[^0-9.]/g, '')) || 0;
+        return tonA - tonB;
+      });
   }
+
+  public getBrandDistribution(filters?: ACFilters) {
+    const dataset = this.getActiveACDataset(filters);
+    const map = new Map<string, number>();
+
+    dataset.forEach(ac => {
+      const brand = ac.make || 'Generic';
+      map.set(brand, (map.get(brand) || 0) + 1);
+    });
+
+    return Array.from(map.entries())
+      .map(([make, count]) => ({ make, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  // ─── Extended Live Reports & Analytics Helpers ──────────────────────────────
+  public calculateACUnitValue(ac: ExtendedAC): number {
+    const tons = ac.capacityTon || (ac.capacity ? parseFloat(ac.capacity.replace(/[^0-9.]/g, '')) : 1.5) || 1.5;
+    const type = (ac.type || '').toLowerCase();
+    
+    if (type.includes('central') || type.includes('vrf') || type.includes('vrv') || type.includes('chiller')) {
+      return Math.round(tons * 50000);
+    }
+    if (type.includes('cassette') || type.includes('duct')) {
+      return Math.round(tons * 38000);
+    }
+    if (tons <= 1.0) return 32000;
+    if (tons <= 1.5) return 45000;
+    if (tons <= 2.0) return 62000;
+    return Math.round(tons * 30000);
+  }
+
+  public getTotalAssetValue(filters?: ACFilters): { totalValueINR: number; formattedValue: string; acsValuedCount: number } {
+    const dataset = this.getActiveACDataset(filters);
+    let totalValueINR = 0;
+    dataset.forEach(ac => {
+      totalValueINR += this.calculateACUnitValue(ac);
+    });
+
+    let formattedValue = `₹${(totalValueINR / 100000).toFixed(1)}L`;
+    if (totalValueINR >= 10000000) {
+      formattedValue = `₹${(totalValueINR / 10000000).toFixed(2)} Cr`;
+    }
+
+    return { totalValueINR, formattedValue, acsValuedCount: dataset.length };
+  }
+
+  public getAverageACAge(filters?: ACFilters): { avgAgeYears: number; formattedAge: string; unitsWithAgeCount: number } {
+    const dataset = this.getActiveACDataset(filters);
+    const currentYear = new Date().getFullYear();
+    let totalAge = 0;
+    let count = 0;
+
+    dataset.forEach(ac => {
+      let yearStr = ac.installationYear;
+      if (!yearStr && ac.installationDate) {
+        yearStr = ac.installationDate.split('-')[0];
+      }
+      if (yearStr) {
+        const year = parseInt(yearStr, 10);
+        if (!isNaN(year) && year > 1990 && year <= currentYear) {
+          totalAge += (currentYear - year);
+          count++;
+        }
+      }
+    });
+
+    const avgAgeYears = count > 0 ? parseFloat((totalAge / count).toFixed(1)) : 2.5;
+    const formattedAge = count > 0 ? `${avgAgeYears} yrs` : 'N/A';
+
+    return { avgAgeYears, formattedAge, unitsWithAgeCount: count };
+  }
+
+  public getConnectedPowerLoad(filters?: ACFilters): { totalKw: number; formattedKw: string; unitsWithPowerCount: number } {
+    const dataset = this.getActiveACDataset(filters);
+    let totalKw = 0;
+    let count = 0;
+
+    dataset.forEach(ac => {
+      let kw = 0;
+      if (ac.powerRating) {
+        kw = parseFloat(ac.powerRating.replace(/[^0-9.]/g, '')) || 0;
+      }
+      if (!kw) {
+        const tons = ac.capacityTon || (ac.capacity ? parseFloat(ac.capacity.replace(/[^0-9.]/g, '')) : 1.5) || 1.5;
+        kw = tons * 1.2; // standard rule of thumb: ~1.2 kW per ton
+      }
+      totalKw += kw;
+      count++;
+    });
+
+    const formattedKw = `${totalKw.toFixed(1)} kW`;
+    return { totalKw: parseFloat(totalKw.toFixed(1)), formattedKw, unitsWithPowerCount: count };
+  }
+
+  public getAssetValueByBuilding(filters?: ACFilters) {
+    const dataset = this.getActiveACDataset(filters);
+    const map = new Map<string, { building: string; totalValue: number; count: number }>();
+
+    dataset.forEach(ac => {
+      const bName = ac.buildingName || ac.location.buildingId || 'Unassigned';
+      const val = this.calculateACUnitValue(ac);
+      const existing = map.get(bName) || { building: bName, totalValue: 0, count: 0 };
+      map.set(bName, { building: bName, totalValue: existing.totalValue + val, count: existing.count + 1 });
+    });
+
+    return Array.from(map.values()).map(item => ({
+      building: item.building,
+      totalValue: item.totalValue,
+      formattedValue: `₹${(item.totalValue / 100000).toFixed(1)}L`,
+      count: item.count
+    }));
+  }
+
+  public getAssetValueByType(filters?: ACFilters) {
+    const dataset = this.getActiveACDataset(filters);
+    const map = new Map<string, { type: string; totalValue: number; count: number }>();
+
+    dataset.forEach(ac => {
+      const tName = ac.type || 'Other';
+      const val = this.calculateACUnitValue(ac);
+      const existing = map.get(tName) || { type: tName, totalValue: 0, count: 0 };
+      map.set(tName, { type: tName, totalValue: existing.totalValue + val, count: existing.count + 1 });
+    });
+
+    return Array.from(map.values()).map(item => ({
+      name: item.type,
+      totalValue: item.totalValue,
+      formattedValue: `₹${(item.totalValue / 100000).toFixed(1)}L`,
+      count: item.count
+    }));
+  }
+
+  public getFaultFrequencyByBuilding(filters?: ACFilters) {
+    const dataset = this.getActiveACDataset(filters);
+    const map = new Map<string, { building: string; faultyCount: number; totalCount: number }>();
+
+    dataset.forEach(ac => {
+      const bName = ac.buildingName || ac.location.buildingId || 'Unassigned';
+      const isFaultyOrMaint = ac.status === 'Fault' || ac.status === 'Maintenance';
+      const existing = map.get(bName) || { building: bName, faultyCount: 0, totalCount: 0 };
+      map.set(bName, {
+        building: bName,
+        faultyCount: existing.faultyCount + (isFaultyOrMaint ? 1 : 0),
+        totalCount: existing.totalCount + 1
+      });
+    });
+
+    return Array.from(map.values()).map(item => ({
+      building: item.building,
+      faultyCount: item.faultyCount,
+      totalCount: item.totalCount,
+      faultRate: item.totalCount > 0 ? Math.round((item.faultyCount / item.totalCount) * 100) : 0
+    }));
+  }
+
 
   // Import New ACs (Add Mode)
   public async importACAssets(newACs: ExtendedAC[]): Promise<ImportResult> {
@@ -565,6 +731,11 @@ this.acs = [];
 
   // Update a single AC asset in real-time
   public updateACAsset(acId: string, updates: Partial<ExtendedAC>): ExtendedAC | null {
+    const role = getCurrentUserRole();
+    if (!canEditInventory(role)) {
+      throw new Error('Only the system administrator can edit AC inventory records.');
+    }
+
     const idx = this.acs.findIndex(a => a.id === acId);
     if (idx === -1) return null;
 

@@ -2,11 +2,13 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { mockMaintenanceJobs, MaintenanceJob } from '@/lib/mock-data';
-import { Wrench, Search, Plus, Filter, CheckCircle2, Clock, AlertOctagon, XCircle, Eye, X, ChevronDown } from 'lucide-react';
+import { MaintenanceJob } from '@/lib/mock-data';
+import { Wrench, Search, Plus, CheckCircle2, Clock, Eye, X } from 'lucide-react';
 import { ProtectedAction } from '@/components/auth/ProtectedRoute';
 import { MaintenanceMovementShell } from '@/components/features/MaintenanceMovementShell';
 import { MovementPanel } from '@/components/features/MovementPanel';
+
+import { useMaintenanceJobs } from '@/lib/maintenance-data-service';
 
 const STATUS_COLORS: Record<string, string> = {
   Pending: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -23,27 +25,44 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export default function MaintenancePage() {
-  const [jobs, setJobs] = useState<MaintenanceJob[]>(mockMaintenanceJobs);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedJob, setSelectedJob] = useState<MaintenanceJob | null>(null);
   const [showAdd, setShowAdd] = useState(false);
 
-  const filtered = jobs.filter(j => {
-    const matchSearch = [j.id, j.acId, j.acLocation, j.assignedTo, j.description].join(' ').toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'All' || j.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
+  // Form state
+  const [newAcId, setNewAcId] = useState('AC-127');
+  const [newType, setNewType] = useState<MaintenanceJob['type']>('Preventive');
+  const [newPriority, setNewPriority] = useState<MaintenanceJob['priority']>('Medium');
+  const [newAssignee, setNewAssignee] = useState('Mr. Suresh Babu');
+  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newDesc, setNewDesc] = useState('');
 
-  const updateStatus = (id: string, status: MaintenanceJob['status']) => {
-    setJobs(prev => prev.map(j => j.id === id ? { ...j, status, completedDate: status === 'Completed' ? new Date().toLocaleDateString() : j.completedDate } : j));
-    setSelectedJob(prev => prev?.id === id ? { ...prev, status } : prev);
+  const { jobs, stats, updateJob, addJob } = useMaintenanceJobs({ search, status: statusFilter });
+
+  const handleUpdateStatus = (id: string, status: MaintenanceJob['status']) => {
+    const completedDate = status === 'Completed' ? new Date().toISOString().split('T')[0] : undefined;
+    updateJob(id, { status, ...(completedDate ? { completedDate } : {}) });
+    if (selectedJob?.id === id) {
+      setSelectedJob(prev => prev ? { ...prev, status, ...(completedDate ? { completedDate } : {}) } : null);
+    }
   };
 
-  const stats = {
-    pending: jobs.filter(j => j.status === 'Pending').length,
-    inProgress: jobs.filter(j => j.status === 'In Progress').length,
-    completed: jobs.filter(j => j.status === 'Completed').length,
+  const handleScheduleSubmit = () => {
+    if (!newDesc.trim()) return;
+    addJob({
+      acId: newAcId,
+      acLocation: 'Academic Block A - Room 102',
+      type: newType,
+      priority: newPriority,
+      assignedTo: newAssignee,
+      scheduledDate: newDate,
+      description: newDesc,
+      status: 'Pending',
+      reportedBy: 'Facility Manager'
+    });
+    setNewDesc('');
+    setShowAdd(false);
   };
 
   return (
@@ -55,7 +74,7 @@ export default function MaintenancePage() {
           <p className="text-sm text-slate-500 mt-1">Track, assign & complete maintenance jobs for all AC units.</p>
         </div>
         <ProtectedAction permission="MANAGE_MAINTENANCE">
-          <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-sm transition-colors">
+          <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-sm transition-colors cursor-pointer">
             <Plus size={16} /> Schedule Job
           </button>
         </ProtectedAction>
@@ -100,7 +119,7 @@ export default function MaintenancePage() {
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${statusFilter === s ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}
+              className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${statusFilter === s ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}
             >
               {s}
             </button>
@@ -110,7 +129,7 @@ export default function MaintenancePage() {
 
       {/* Job Cards */}
       <div className="grid gap-4">
-        {filtered.map((job, i) => (
+        {jobs.map((job, i) => (
           <motion.div
             key={job.id}
             initial={{ opacity: 0, y: 10 }}
@@ -134,17 +153,17 @@ export default function MaintenancePage() {
               </div>
             </div>
             <div className="flex flex-row md:flex-col gap-2 flex-shrink-0">
-              <button onClick={() => setSelectedJob(job)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors flex items-center gap-1.5">
+              <button onClick={() => setSelectedJob(job)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer">
                 <Eye size={13} /> View
               </button>
               <ProtectedAction permission="MANAGE_MAINTENANCE">
                 {job.status === 'Pending' && (
-                  <button onClick={() => updateStatus(job.id, 'In Progress')} className="px-3 py-2 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs font-medium transition-colors">
+                  <button onClick={() => handleUpdateStatus(job.id, 'In Progress')} className="px-3 py-2 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs font-medium transition-colors cursor-pointer">
                     Start Job
                   </button>
                 )}
                 {job.status === 'In Progress' && (
-                  <button onClick={() => updateStatus(job.id, 'Completed')} className="px-3 py-2 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-xs font-medium transition-colors">
+                  <button onClick={() => handleUpdateStatus(job.id, 'Completed')} className="px-3 py-2 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-xs font-medium transition-colors cursor-pointer">
                     Complete
                   </button>
                 )}
@@ -153,7 +172,7 @@ export default function MaintenancePage() {
           </motion.div>
         ))}
 
-        {filtered.length === 0 && (
+        {jobs.length === 0 && (
           <div className="text-center py-16 text-slate-400 bg-white rounded-xl border border-slate-200">
             <Wrench size={36} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No maintenance jobs found.</p>
@@ -170,7 +189,7 @@ export default function MaintenancePage() {
                 <h3 className="font-bold text-lg">{selectedJob.id} – {selectedJob.type}</h3>
                 <span className={`inline-block mt-1 px-2 py-0.5 text-xs font-semibold rounded-full border ${STATUS_COLORS[selectedJob.status]}`}>{selectedJob.status}</span>
               </div>
-              <button onClick={() => setSelectedJob(null)} className="p-2 rounded-full hover:bg-slate-200"><X size={18} /></button>
+              <button onClick={() => setSelectedJob(null)} className="p-2 rounded-full hover:bg-slate-200 cursor-pointer"><X size={18} /></button>
             </div>
             <div className="p-6 space-y-4 text-sm">
               <p className="text-slate-700">{selectedJob.description}</p>
@@ -193,15 +212,12 @@ export default function MaintenancePage() {
                   <p className="text-slate-700">{selectedJob.notes}</p>
                 </div>
               )}
-              <ProtectedAction permission="MANAGE_MAINTENANCE">
-                <textarea className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" rows={2} placeholder="Add technician note..." />
-              </ProtectedAction>
             </div>
             <div className="p-5 border-t border-slate-100 flex justify-end gap-3">
-              <button onClick={() => setSelectedJob(null)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">Close</button>
+              <button onClick={() => setSelectedJob(null)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium cursor-pointer">Close</button>
               <ProtectedAction permission="MANAGE_MAINTENANCE">
-                {selectedJob.status === 'Pending' && <button onClick={() => updateStatus(selectedJob.id, 'In Progress')} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Start Job</button>}
-                {selectedJob.status === 'In Progress' && <button onClick={() => updateStatus(selectedJob.id, 'Completed')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700">Mark Complete</button>}
+                {selectedJob.status === 'Pending' && <button onClick={() => handleUpdateStatus(selectedJob.id, 'In Progress')} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 cursor-pointer">Start Job</button>}
+                {selectedJob.status === 'In Progress' && <button onClick={() => handleUpdateStatus(selectedJob.id, 'Completed')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 cursor-pointer">Mark Complete</button>}
               </ProtectedAction>
             </div>
           </motion.div>
@@ -214,33 +230,52 @@ export default function MaintenancePage() {
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="p-5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-lg">Schedule Maintenance Job</h3>
-              <button onClick={() => setShowAdd(false)} className="p-2 rounded-full hover:bg-slate-200"><X size={18} /></button>
+              <button onClick={() => setShowAdd(false)} className="p-2 rounded-full hover:bg-slate-200 cursor-pointer"><X size={18} /></button>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><label className="text-xs font-semibold text-slate-500 uppercase">AC Unit</label><input className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="AC-127" /></div>
-                <div><label className="text-xs font-semibold text-slate-500 uppercase">Job Type</label>
-                  <select className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                    <option>Preventive</option><option>Repair</option><option>Emergency</option><option>Inspection</option>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">AC Unit</label>
+                  <input value={newAcId} onChange={e => setNewAcId(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="AC-127" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Job Type</label>
+                  <select value={newType} onChange={e => setNewType(e.target.value as any)} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="Preventive">Preventive</option>
+                    <option value="Repair">Repair</option>
+                    <option value="Emergency">Emergency</option>
+                    <option value="Inspection">Inspection</option>
                   </select>
                 </div>
-                <div><label className="text-xs font-semibold text-slate-500 uppercase">Priority</label>
-                  <select className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                    <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Priority</label>
+                  <select value={newPriority} onChange={e => setNewPriority(e.target.value as any)} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
                   </select>
                 </div>
-                <div><label className="text-xs font-semibold text-slate-500 uppercase">Assign To</label>
-                  <select className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                    <option>Mr. Suresh Babu</option><option>Mr. Karthik Rajan</option>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Assign To</label>
+                  <select value={newAssignee} onChange={e => setNewAssignee(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="Mr. Suresh Babu">Mr. Suresh Babu</option>
+                    <option value="Mr. Karthik Rajan">Mr. Karthik Rajan</option>
                   </select>
                 </div>
-                <div className="col-span-2"><label className="text-xs font-semibold text-slate-500 uppercase">Scheduled Date</label><input type="date" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-                <div className="col-span-2"><label className="text-xs font-semibold text-slate-500 uppercase">Description</label><textarea className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" rows={2} placeholder="Describe the issue..." /></div>
+                <div className="col-span-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Scheduled Date</label>
+                  <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Description</label>
+                  <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" rows={2} placeholder="Describe the maintenance task..." />
+                </div>
               </div>
             </div>
             <div className="p-5 border-t border-slate-100 flex justify-end gap-3">
-              <button onClick={() => setShowAdd(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">Cancel</button>
-              <button onClick={() => { alert('Job scheduled! (Mock)'); setShowAdd(false); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1.5"><Plus size={14} /> Schedule</button>
+              <button onClick={() => setShowAdd(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium cursor-pointer">Cancel</button>
+              <button onClick={handleScheduleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1.5 cursor-pointer"><Plus size={14} /> Schedule Job</button>
             </div>
           </motion.div>
         </div>
