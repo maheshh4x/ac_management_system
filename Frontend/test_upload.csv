@@ -1,5 +1,0 @@
-AC ID,Building ID,Building Name,Floor,Room ID,Room Name,Department,AC Type,Brand,Model,Serial Number,Capacity Ton,Status,Installation Date,Last Maintenance Date,Next Service Date,Technician,Remarks
-AC-901,BLK-001,Main Academic Block,Floor 1,ROOM-102,CSE Computer Lab 1,Computer Science,Split,Daikin,FTK50,DAI10001,1.5 Ton,Working,2022-01-15,2026-08-10,2026-11-10,Mr. Suresh Babu,Official College Record
-AC-902,BLK-001,Main Academic Block,Floor 1,ROOM-105,HOD Cabin,Administration,Window,Voltas,VW183,VLT20002,1.5 Ton,Working,2021-06-20,2026-07-05,2026-10-05,Mr. Karthik Rajan,Official College Record
-AC-903,BLK-002,ECE & IT Block,Floor 2,ROOM-204,DSP Research Lab,Electronics,Cassette,Blue Star,IC518,BS30003,2.0 Ton,Fault,2023-03-10,2026-09-01,2026-09-25,Mr. Suresh Babu,Maintenance required
-AC-904,BLK-002,ECE & IT Block,Floor 2,ROOM-205,VLSI Lab,Electronics,Cassette,Blue Star,IC518,BS30004,2.0 Ton,Working,2023-03-10,2026-09-01,2026-09-25,Mr. Suresh Babu,Test Working
