@@ -6,6 +6,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, useGLTF, Environment, ContactShadows } from '@react-three/drei';
 import { RotateCcw, Maximize2 } from 'lucide-react';
 import * as THREE from 'three';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
 function ACModel({ url }: { url: string }) {
   const { scene } = useGLTF(url);
@@ -45,7 +46,7 @@ export const AC3DViewer = React.memo(function AC3DViewer({
   className = '',
   height = 380,
 }: AC3DViewerProps) {
-  const controlsRef = useRef<{ reset: () => void } | null>(null);
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
 
   const resetCamera = () => {
